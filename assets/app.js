@@ -904,8 +904,7 @@ function renderContent(){
  else if(tab==='base')renderBase(ct);
  else if(tab==='new')renderNew(ct);
  else if(tab==='history')renderHistory(ct);
- else if(tab==='methodology')renderMethodology(ct);
- queueMicrotask(makeClientRowsInteractive);
+ queueMicrotask(()=>{makeClientRowsInteractive();updateWorkspaceContext()});
 }
 
 function openDrill(type){drilldown={type};pg=0;searchVal='';renderContent()}
@@ -1721,6 +1720,50 @@ function buildWorkspacePulse(){
  return el;
 }
 
+function workspaceNewClients(){
+ if(DB.months.length<2)return[];
+ const previous=new Set();
+ for(let index=0;index<DB.months.length-1;index++)DB.months[index].rows.forEach(row=>previous.add(row[0]));
+ return lat().rows.map(dec).filter(row=>!previous.has(row.c)&&(row.est==='Ativo'||row.est==='Recorrente'));
+}
+
+function workspaceCompactContext(){
+ const okr=computeOKR(),pipe=computePipeline(),metrics=computeMonthMetrics(latI(),true),qp=computeQuarterProgress();
+ const rows=lat().rows.map(dec),total=rows.length;
+ const previous=DB.months.length>1?computeMonthMetrics(latI()-1,false):null;
+ const newClients=workspaceNewClients();
+ const active=metrics?.active||0,churn=metrics?.churn||0,inactive=metrics?.inativo||0;
+ const averageDays=total?Math.round(rows.reduce((sum,row)=>sum+(Number(row.dias)||0),0)/total*10)/10:0;
+ const models={
+  pipeline:{eyebrow:'FUNIL DE CONVERSÃO',title:'Oportunidades acionáveis',description:'Contas elegíveis pela média de dias dos três últimos fechamentos.',items:[['Pipeline total',pipe.cnpjs.size,'clientes elegíveis','accent'],['Sem produtos',pipe.seg.none,'abordagem combinada','neutral'],['Falta CP',pipe.seg.tel,'já possuem Telemetria','purple'],['Falta Telemetria',pipe.seg.cp,'já possuem CP','blue']],note:okr.gap?`Converter ${Math.min(okr.gap,pipe.cnpjs.size)} oportunidades reduz o gap atual de ${okr.gap} clientes.`:'Meta alcançada: use o pipeline para consolidar o próximo ciclo.'},
+  clients:{eyebrow:'CARTEIRA ADERIDA',title:'Clientes com os dois produtos',description:'Conteúdo Personalizado efetivo e Telemetria no mesmo fechamento.',items:[['Aderidos',okr.current,`${workspacePercent(okr.current,total)}% da base`,'accent'],['Variação mensal',previous?`${okr.current-previous.current>=0?'+':''}${okr.current-previous.current}`:'—',previous?'vs. fechamento anterior':'sem comparação','blue'],['CP Validado',okr.cpV,'validação manual','orange'],['Dias médios',averageDays,'na base atual','purple']],note:`Faltam ${okr.gap} clientes para a meta de ${okr.target}.`},
+  base:{eyebrow:'CARTEIRA COMPLETA',title:`Base de ${lat().name}`,description:'Composição global do fechamento selecionado.',items:[['Total',fmt(total),'clientes na base','accent'],['Ativos/Recorrentes',fmt(active),`${workspacePercent(active,total)}% da base`,'green'],['Churn',fmt(churn),`${workspacePercent(churn,total)}% da base`,'orange'],['Inativos',fmt(inactive),`${workspacePercent(inactive,total)}% da base`,'neutral']],note:`CP efetivo cobre ${workspacePercent(okr.cpT,total)}% e Telemetria cobre ${workspacePercent(okr.tel,total)}% da base.`},
+  new:{eyebrow:'ENTRADAS RECENTES',title:'Novos clientes em observação',description:'Contas ativas sem presença nos fechamentos anteriores.',items:[['Novos ativos',newClients.length,'no fechamento atual','accent'],['Com 150+ dias',newClients.filter(row=>row.dias>=150).length,'potencial imediato','green'],['Com algum produto',newClients.filter(row=>row.cp||row.tl||CPV[row.c]).length,'já iniciaram adoção','blue'],['Dias médios',newClients.length?Math.round(newClients.reduce((sum,row)=>sum+(Number(row.dias)||0),0)/newClients.length*10)/10:0,'entre novos clientes','purple']],note:'Acompanhe a maturação dos novos clientes antes de incluí-los na abordagem de conversão.'},
+  history:{eyebrow:'EVOLUÇÃO TEMPORAL',title:'Histórico de fechamentos',description:'Comparação mensal e trimestral das métricas preservadas.',items:[['Fechamentos',DB.months.length,'períodos disponíveis','accent'],['Trimestres',computeQuarterlyMetrics().length,'ciclos identificados','purple'],['Posição atual',`${okr.current}/${okr.target}`,`${okr.pct}% da meta`,'blue'],['Avanço do Q',`${Math.max(0,qp?.delta||0)}/${qp?.deltaNeeded||okr.target}`,`${qp?.pctIncremental??okr.pct}% do esforço`,'green']],note:'Selecione um período para auditar o snapshot e comparar a evolução entre trimestres.'}
+ };
+ return models[tab]||models.history;
+}
+
+function updateWorkspaceContext(){
+ const current=document.querySelector('.motor-pulse');
+ const hero=document.querySelector('.motor-main>.hero');
+ const legend=document.querySelector('.motor-main>.legend');
+ if(!current)return;
+ if(tab==='overview'&&!drilldown){
+  const full=buildWorkspacePulse();
+  current.replaceWith(full);
+  if(hero)hero.hidden=false;
+  if(legend)legend.hidden=false;
+  return;
+ }
+ const model=workspaceCompactContext();
+ current.className='motor-pulse motor-pulse-compact';
+ current.setAttribute('aria-label',model.title);
+ current.innerHTML=`<div class="motor-context-head"><div><span>${model.eyebrow}</span><h2>${model.title}</h2><p>${model.description}</p></div><small>${lat().name}</small></div><div class="motor-context-grid">${model.items.map(([label,value,detail,tone])=>`<article class="${tone}"><span>${label}</span><strong>${value}</strong><small>${detail}</small></article>`).join('')}</div><div class="motor-context-note">${model.note}</div>`;
+ if(hero)hero.hidden=true;
+ if(legend)legend.hidden=true;
+}
+
 function enhanceWorkspace(){
  const app=document.getElementById('app');
  if(!app||app.querySelector('.motor-workspace'))return;
@@ -1731,16 +1774,8 @@ function enhanceWorkspace(){
  const content=app.querySelector('#ct');
  if(!hdr||!hero||!tabs||!content)return;
 
- if(!tabs.querySelector('[data-tab="methodology"]')){
-  const method=document.createElement('button');
-  method.className='tab';method.dataset.tab='methodology';
-  method.textContent='Metodologia';
-  method.onclick=()=>goWorkspaceTab('methodology');
-  tabs.appendChild(method);
- }
-
- const labels={overview:'Visão executiva',pipeline:'Oportunidades',clients:'Aderidos',base:'Carteira completa',new:'Novos clientes',history:'Histórico',methodology:'Metodologia'};
- const icons={overview:'⌂',pipeline:'◎',clients:'✓',base:'▤',new:'＋',history:'◫',methodology:'i'};
+ const labels={overview:'Visão executiva',pipeline:'Oportunidades',clients:'Aderidos',base:'Carteira completa',new:'Novos clientes',history:'Histórico'};
+ const icons={overview:'⌂',pipeline:'◎',clients:'✓',base:'▤',new:'＋',history:'◫'};
  tabs.querySelectorAll('[data-tab]').forEach(button=>{
   const key=button.dataset.tab;
   const badge=button.querySelector('.bd')?.outerHTML||'';
@@ -1754,7 +1789,7 @@ function enhanceWorkspace(){
  const month=lat()?.name||'Sem período';
  const role=currentUser?.role==='admin'?'Administrador':'Membro';
  sidebar.innerHTML=`
-  <div class="motor-brand"><button id="workspace-nav-toggle" onclick="toggleWorkspaceNav()" aria-label="Recolher menu" title="Recolher menu"><i></i></button></div>
+  <div class="motor-brand"><div class="motor-brand-logo"><svg class="motor-logo-full" viewBox="0 0 2267.74 413.11" aria-label="Academia PX"><use href="#logo-px"/></svg><svg class="motor-logo-mark" viewBox="1700 0 568 413" aria-label="PX"><use href="#logo-px" width="2267.74" height="413.11"/></svg></div><button id="workspace-nav-toggle" onclick="toggleWorkspaceNav()" aria-label="Recolher menu" title="Recolher menu"><i></i></button></div>
   <div class="motor-nav-label">NAVEGAÇÃO OPERACIONAL</div>`;
  sidebar.appendChild(tabs);
  sidebar.insertAdjacentHTML('beforeend',`
@@ -1762,6 +1797,7 @@ function enhanceWorkspace(){
   <div class="motor-sidebar-user"><div>${(currentUser?.name||currentUser?.email||'U').slice(0,1).toUpperCase()}</div><span><strong>${currentUser?.name||currentUser?.email||'Usuário'}</strong><small>${role}</small></span></div>`);
 
  hdr.classList.add('motor-topbar');
+ hdr.querySelector('.hdr-logo')?.remove();
  const actions=hdr.querySelector('.hdr-r');
  if(actions&&!document.getElementById('workspace-theme')){
   actions.insertAdjacentHTML('afterbegin','<button class="btn workspace-menu" onclick="toggleWorkspaceNav()" aria-label="Abrir navegação">☰</button><button class="btn" id="workspace-theme" onclick="toggleWorkspaceTheme()"></button>');
@@ -1819,6 +1855,44 @@ function renderStrategicOverview(ct){
    </article>
   </div>`;
  ct.prepend(section);
+ renderQuarterAwareProjection();
+}
+
+function renderQuarterAwareProjection(){
+ const canvas=document.getElementById('ch4');
+ if(!canvas||typeof Chart==='undefined'||DB.months.length<2)return;
+ const existing=Chart.getChart(canvas);if(existing)existing.destroy();
+ const actualValues=DB.months.map((month,index)=>computeMonthMetrics(index,index===latI())?.current||0);
+ const ids=DB.months.map(month=>month.id);
+ const labels=DB.months.map(month=>month.name.split(' ')[0]);
+ const recent=actualValues.slice(-4);
+ const deltas=[];for(let index=1;index<recent.length;index++)deltas.push(recent[index]-recent[index-1]);
+ const monthlyRate=deltas.length?deltas.reduce((sum,value)=>sum+value,0)/deltas.length:0;
+ let [year,month]=String(ids.at(-1)).split('-').map(Number);
+ const futureValues=[];
+ for(let step=1;step<=6;step++){
+  month++;if(month>12){month=1;year++}
+  const id=`${year}-${String(month).padStart(2,'0')}`;
+  ids.push(id);labels.push(`${MONTH_PT[month-1].slice(0,3)}/${String(year).slice(-2)}`);
+  futureValues.push(Math.max(0,Math.round((actualValues.at(-1)+monthlyRate*step)*10)/10));
+ }
+ const actual=[...actualValues,...Array(6).fill(null)];
+ const projected=[...Array(Math.max(0,actualValues.length-1)).fill(null),actualValues.at(-1),...futureValues];
+ const targets=ids.map(id=>getTargetForMonth(id));
+ const quarterLabels=ids.map(id=>getQuarter(id).label);
+ const quarterTargets=[];
+ ids.forEach((id,index)=>{const quarter=getQuarter(id);if(!quarterTargets.some(item=>item.key===quarter.key))quarterTargets.push({key:quarter.key,label:quarter.label,target:targets[index]})});
+ const parent=canvas.closest('.cc');
+ if(parent){
+  const title=parent.querySelector('h3');if(title)title.textContent='Projeção de atingimento por trimestre';
+  parent.querySelector('.motor-quarter-legend')?.remove();
+  title?.insertAdjacentHTML('afterend',`<div class="motor-quarter-legend">${quarterTargets.map(item=>`<span><b>${item.label}</b> Meta ${item.target}</span>`).join('')}</div>`);
+ }
+ new Chart(canvas,{type:'line',data:{labels,datasets:[
+  {label:'Realizado',data:actual,borderColor:'#9d5fe0',backgroundColor:'rgba(157,95,224,.1)',fill:true,tension:.3,pointRadius:4,borderWidth:2.5,spanGaps:false},
+  {label:'Projeção',data:projected,borderColor:'rgba(184,129,241,.8)',backgroundColor:'rgba(184,129,241,.05)',fill:false,tension:.3,pointRadius:3,borderWidth:2,borderDash:[6,5],spanGaps:true},
+  {label:'Meta do trimestre',data:targets,borderColor:'#1fbf98',borderWidth:2,borderDash:[8,4],pointRadius:0,fill:false,stepped:'before'}
+ ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:14,font:{family:'Poppins'}}},tooltip:{callbacks:{afterTitle(items){return items.length?quarterLabels[items[0].dataIndex]:''},label(context){const value=context.parsed.y;if(value===null)return'';return`${context.dataset.label}: ${value} clientes`}}}},scales:{y:{beginAtZero:true,grid:{color:'rgba(125,61,197,.12)'},ticks:{stepSize:10}},x:{grid:{color:'rgba(125,61,197,.06)'}}}}});
 }
 
 function escapeWorkspaceHTML(value){
@@ -1844,6 +1918,27 @@ function closeClientProfile(){
  if(root)root.remove();
 }
 
+function clientDaysComparison(snapshots,offset,label){
+ const current=snapshots.at(-1);
+ if(!current||snapshots.length<=offset)return{label,value:'—',detail:`requer ${offset+1} períodos`,tone:'neutral'};
+ const previous=snapshots[snapshots.length-1-offset];
+ const now=Number(current.row.dias)||0,before=Number(previous.row.dias)||0;
+ const delta=Math.round((now-before)*10)/10;
+ const pct=before?Math.round(delta/before*1000)/10:null;
+ return{label,value:`${delta>0?'+':''}${fmtD(delta)}`,detail:`${pct===null?'sem base':`${pct>0?'+':''}${pct}%`} vs. ${previous.month.name}`,tone:delta>0?'up':delta<0?'down':'stable'};
+}
+
+function clientDaysTrend(snapshots){
+ const recent=snapshots.slice(-4);
+ const deltas=[];
+ for(let index=1;index<recent.length;index++)deltas.push((Number(recent[index].row.dias)||0)-(Number(recent[index-1].row.dias)||0));
+ const average=deltas.length?Math.round(deltas.reduce((sum,value)=>sum+value,0)/deltas.length*10)/10:0;
+ const recentValues=snapshots.slice(-6).map(item=>Number(item.row.dias)||0);
+ const volatility=recentValues.length?Math.round((Math.max(...recentValues)-Math.min(...recentValues))*10)/10:0;
+ const direction=Math.abs(average)<1?'estabilidade':average>0?'crescimento':'redução';
+ return{average,volatility,direction,periods:deltas.length};
+}
+
 function openClientProfile(cnpj){
  const snapshots=DB.months.map((month,index)=>{
   const raw=month.rows.find(item=>String(item[0])===String(cnpj));
@@ -1858,6 +1953,9 @@ function openClientProfile(cnpj){
  const both=latest.cp&&r.tl;
  const action=both?'Consolidar valor percebido, acompanhar adoção e proteger a permanência dos dois produtos.':latest.cp?'Priorizar ativação de Telemetria para completar a aderência.':r.tl?'Priorizar proposta de Conteúdo Personalizado para completar a aderência.':computePipeline().cnpjs.has(r.c)?'Cliente elegível: estruturar abordagem dos dois produtos e acompanhar conversão.':'Manter em observação e revisar o potencial no próximo fechamento.';
  const maxDays=Math.max(1,...snapshots.map(item=>Number(item.row.dias)||0));
+ const comparisons=[clientDaysComparison(snapshots,1,'Mensal'),clientDaysComparison(snapshots,3,'Trimestral'),clientDaysComparison(snapshots,6,'Semestral'),clientDaysComparison(snapshots,12,'Anual')];
+ const trend=clientDaysTrend(snapshots);
+ const averages=[3,6,12].map(size=>{const values=snapshots.slice(-size).map(item=>Number(item.row.dias)||0);return{size,value:values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length*10)/10:0,available:snapshots.length>=size}});
  closeClientProfile();
  const root=document.createElement('div');root.id='client-profile-root';root.className='motor-drawer-backdrop';
  root.onclick=event=>{if(event.target===root)closeClientProfile()};
@@ -1872,6 +1970,12 @@ function openClientProfile(cnpj){
    <article><span>Contratos</span><strong>${fmt(r.ct)}</strong><small>no fechamento atual</small></article>
    <article><span>Conteúdo Personalizado</span><strong>${latest.cp?'Sim':'Não'}</strong><small>${r.cp?'via sistema':CPV[r.c]?'validado pelo time':'sem ativação'}</small></article>
    <article><span>Telemetria</span><strong>${r.tl?'Sim':'Não'}</strong><small>${both?'aderência completa':'oportunidade aberta'}</small></article>
+  </section>
+  <section class="motor-days-intelligence">
+   <div class="motor-section-head"><div><h3>Inteligência de dias agenciados</h3><p>Tendências e comparações calculadas a partir dos fechamentos preservados</p></div><span>${snapshots.length} períodos</span></div>
+   <div class="motor-trend-insight ${trend.direction}"><div><span>Tendência recente</span><strong>${trend.direction[0].toUpperCase()+trend.direction.slice(1)}</strong></div><p>${trend.periods?`Variação média de ${trend.average>0?'+':''}${fmtD(trend.average)} dias por fechamento nos últimos ${trend.periods} intervalos.`:'Importe novos fechamentos para calcular a tendência.'}</p><small>Amplitude de ${fmtD(trend.volatility)} dias nos últimos ${Math.min(6,snapshots.length)} períodos</small></div>
+   <div class="motor-comparison-grid">${comparisons.map(item=>`<article class="${item.tone}"><span>${item.label}</span><strong>${item.value}</strong><small>${escapeWorkspaceHTML(item.detail)}</small></article>`).join('')}</div>
+   <div class="motor-rolling-averages"><span>Médias móveis</span>${averages.map(item=>`<div><small>${item.size} meses</small><strong>${item.available?fmtD(item.value):'—'}</strong></div>`).join('')}</div>
   </section>
   <section class="motor-profile-section"><div class="motor-section-head"><div><h3>Evolução da conta</h3><p>Todos os fechamentos preservados para este cliente</p></div><span>${snapshots.length} períodos</span></div>
    <div class="motor-history-bars">${snapshots.map(item=>`<div><b>${fmtD(item.row.dias)}</b><i style="height:${Math.max(5,Math.round(item.row.dias/maxDays*100))}%"></i><small>${escapeWorkspaceHTML(item.month.name.split(' ')[0])}</small></div>`).join('')}</div>

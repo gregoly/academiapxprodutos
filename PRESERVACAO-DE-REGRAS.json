@@ -10,6 +10,9 @@
     "exports": true,
     "fullHistory": true,
     "roleControl": true,
-    "backendSync": true
+    "backendSync": true,
+    "quarterAwareProjection": true,
+    "clientDaysIntelligence": true,
+    "contextualTabs": true
   }
 }
