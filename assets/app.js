@@ -891,6 +891,7 @@ function render(){
  </div>
  <div id="ct"></div>`;
  renderContent();
+ enhanceWorkspace();
 }
 
 function renderContent(){
@@ -903,6 +904,8 @@ function renderContent(){
  else if(tab==='base')renderBase(ct);
  else if(tab==='new')renderNew(ct);
  else if(tab==='history')renderHistory(ct);
+ else if(tab==='methodology')renderMethodology(ct);
+ queueMicrotask(makeClientRowsInteractive);
 }
 
 function openDrill(type){drilldown={type};pg=0;searchVal='';renderContent()}
@@ -1636,3 +1639,191 @@ function expHistoryReport(){
  document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
  document.getElementById('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login-pass').focus()});
 })();
+
+
+// ============================================================
+// MOTOR PX EXPERIENCE LAYER
+// Camada exclusivamente visual e de navegação. As regras de negócio
+// e o formato dos dados permanecem sob responsabilidade do app original.
+// ============================================================
+function setWorkspaceTheme(theme){
+ const next=theme==='dark'?'dark':'light';
+ document.documentElement.dataset.workspaceTheme=next;
+ try{localStorage.setItem('okr-apx-workspace-theme',next)}catch(e){}
+ const button=document.getElementById('workspace-theme');
+ if(button)button.textContent=next==='light'?'◐ Tema escuro':'☀ Tema claro';
+}
+
+function toggleWorkspaceTheme(){
+ setWorkspaceTheme(document.documentElement.dataset.workspaceTheme==='light'?'dark':'light');
+}
+
+function toggleWorkspaceNav(){
+ document.querySelector('.motor-workspace')?.classList.toggle('nav-open');
+}
+
+function goWorkspaceTab(next){
+ drilldown=null;tab=next;pg=0;searchVal='';
+ document.querySelector('.motor-workspace')?.classList.remove('nav-open');
+ updateTabs();renderContent();
+}
+
+function workspaceRecommendation(okr,pipe){
+ if(okr.gap<=0)return 'Meta atingida. Priorize retenção, qualidade da implantação e consolidação dos clientes aderidos.';
+ if(pipe.seg.tel>0)return `Ative Conteúdo Personalizado em ${pipe.seg.tel} clientes que já possuem Telemetria.`;
+ if(pipe.seg.cp>0)return `Converta Telemetria em ${pipe.seg.cp} clientes que já possuem Conteúdo Personalizado.`;
+ if(pipe.seg.none>0)return `Inicie abordagem combinada nos ${pipe.seg.none} clientes elegíveis ainda sem produtos.`;
+ return 'Revise a base elegível e acompanhe novos clientes com potencial para o próximo fechamento.';
+}
+
+function buildWorkspacePulse(){
+ const okr=computeOKR();
+ const pipe=computePipeline();
+ const total=lat()?.rows?.length||0;
+ const coverage=total?Math.round(okr.current/total*1000)/10:0;
+ const el=document.createElement('section');
+ el.className='motor-pulse';
+ el.setAttribute('aria-label','Resumo operacional');
+ el.innerHTML=`
+  <button class="motor-pulse-card primary" onclick="goWorkspaceTab('overview')"><span>OKR no período</span><strong>${okr.current}/${okr.target}</strong><small>${okr.pct}% da meta</small></button>
+  <button class="motor-pulse-card" onclick="goWorkspaceTab('pipeline')"><span>Pipeline acionável</span><strong>${pipe.cnpjs.size}</strong><small>clientes elegíveis</small></button>
+  <button class="motor-pulse-card" onclick="goWorkspaceTab('clients')"><span>Aderência efetiva</span><strong>${coverage}%</strong><small>${okr.current} de ${total} clientes</small></button>
+  <button class="motor-pulse-card alert" onclick="openDrill('both')"><span>Gap da meta</span><strong>${okr.gap}</strong><small>${okr.gap===1?'cliente restante':'clientes restantes'}</small></button>
+  <div class="motor-next-action"><span>Próxima ação sugerida</span><strong>${workspaceRecommendation(okr,pipe)}</strong></div>`;
+ return el;
+}
+
+function enhanceWorkspace(){
+ const app=document.getElementById('app');
+ if(!app||app.querySelector('.motor-workspace'))return;
+ const hdr=app.querySelector('.hdr');
+ const hero=app.querySelector('.hero');
+ const legend=app.querySelector('.legend');
+ const tabs=app.querySelector('.tabs');
+ const content=app.querySelector('#ct');
+ if(!hdr||!hero||!tabs||!content)return;
+
+ if(!tabs.querySelector('[data-tab="methodology"]')){
+  const method=document.createElement('button');
+  method.className='tab';method.dataset.tab='methodology';
+  method.textContent='Metodologia';
+  method.onclick=()=>goWorkspaceTab('methodology');
+  tabs.appendChild(method);
+ }
+
+ const labels={overview:'Visão executiva',pipeline:'Oportunidades',clients:'Aderidos',base:'Carteira completa',new:'Novos clientes',history:'Histórico',methodology:'Metodologia'};
+ const icons={overview:'⌂',pipeline:'◎',clients:'✓',base:'▤',new:'＋',history:'◫',methodology:'i'};
+ tabs.querySelectorAll('[data-tab]').forEach(button=>{
+  const key=button.dataset.tab;
+  const badge=button.querySelector('.bd')?.outerHTML||'';
+  button.innerHTML=`<i>${icons[key]||'•'}</i><span>${labels[key]||key}</span>${badge}`;
+ });
+ tabs.classList.add('motor-nav');
+
+ const workspace=document.createElement('div');workspace.className='motor-workspace';
+ const sidebar=document.createElement('aside');sidebar.className='motor-sidebar';
+ const main=document.createElement('main');main.className='motor-main';
+ const month=lat()?.name||'Sem período';
+ const role=currentUser?.role==='admin'?'Administrador':'Membro';
+ sidebar.innerHTML=`
+  <div class="motor-brand"><span>PX</span><div><strong>Academia PX</strong><small>Motor de OKRs</small></div></div>
+  <div class="motor-nav-label">NAVEGAÇÃO OPERACIONAL</div>`;
+ sidebar.appendChild(tabs);
+ sidebar.insertAdjacentHTML('beforeend',`
+  <div class="motor-sidebar-context"><span>Período de referência</span><strong>${month}</strong><small>${DB.months.length} ${DB.months.length===1?'fechamento':'fechamentos'} preservados</small></div>
+  <div class="motor-sidebar-user"><div>${(currentUser?.name||currentUser?.email||'U').slice(0,1).toUpperCase()}</div><span><strong>${currentUser?.name||currentUser?.email||'Usuário'}</strong><small>${role}</small></span></div>`);
+
+ hdr.classList.add('motor-topbar');
+ const actions=hdr.querySelector('.hdr-r');
+ if(actions&&!document.getElementById('workspace-theme')){
+  actions.insertAdjacentHTML('afterbegin','<button class="btn workspace-menu" onclick="toggleWorkspaceNav()" aria-label="Abrir navegação">☰</button><button class="btn" id="workspace-theme" onclick="toggleWorkspaceTheme()"></button>');
+ }
+ const title=hdr.querySelector('.hdr-title p');
+ if(title)title.innerHTML=`<strong>Central de performance</strong><span>Conteúdo Personalizado &amp; Telemetria · ${month}</span>`;
+
+ app.textContent='';
+ app.appendChild(workspace);workspace.append(sidebar,main);
+ main.append(hdr,buildWorkspacePulse(),hero);
+ if(legend)main.appendChild(legend);
+ main.appendChild(content);
+ setWorkspaceTheme((()=>{try{return localStorage.getItem('okr-apx-workspace-theme')||'light'}catch(e){return'light'}})());
+ updateTabs();makeClientRowsInteractive();
+}
+
+function escapeWorkspaceHTML(value){
+ return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+}
+
+function makeClientRowsInteractive(){
+ document.querySelectorAll('#ct table tbody tr').forEach(row=>{
+  const cell=row.querySelector('td:first-child');
+  const strong=cell?.querySelector('strong');
+  const meta=cell?.querySelector('span');
+  if(!strong||!meta||strong.dataset.profileReady)return;
+  const cnpj=meta.textContent.trim();
+  if(!cnpj||!DB.months.some(month=>month.rows.some(raw=>String(raw[0])===cnpj)))return;
+  const button=document.createElement('button');button.className='motor-client-link';
+  button.textContent=strong.textContent;button.type='button';button.onclick=()=>openClientProfile(cnpj);
+  strong.dataset.profileReady='1';strong.replaceWith(button);
+ });
+}
+
+function closeClientProfile(){
+ const root=document.getElementById('client-profile-root');
+ if(root)root.remove();
+}
+
+function openClientProfile(cnpj){
+ const snapshots=DB.months.map((month,index)=>{
+  const raw=month.rows.find(item=>String(item[0])===String(cnpj));
+  if(!raw)return null;
+  const row=dec(raw);
+  return{month,index,row,cp:row.cp||(index===latI()&&CPV[row.c]===true)};
+ }).filter(Boolean);
+ if(!snapshots.length)return;
+ const latest=snapshots[snapshots.length-1];
+ const first=snapshots[0];
+ const r=latest.row;
+ const both=latest.cp&&r.tl;
+ const action=both?'Consolidar valor percebido, acompanhar adoção e proteger a permanência dos dois produtos.':latest.cp?'Priorizar ativação de Telemetria para completar a aderência.':r.tl?'Priorizar proposta de Conteúdo Personalizado para completar a aderência.':computePipeline().cnpjs.has(r.c)?'Cliente elegível: estruturar abordagem dos dois produtos e acompanhar conversão.':'Manter em observação e revisar o potencial no próximo fechamento.';
+ const maxDays=Math.max(1,...snapshots.map(item=>Number(item.row.dias)||0));
+ closeClientProfile();
+ const root=document.createElement('div');root.id='client-profile-root';root.className='motor-drawer-backdrop';
+ root.onclick=event=>{if(event.target===root)closeClientProfile()};
+ root.innerHTML=`<aside class="motor-drawer" role="dialog" aria-modal="true" aria-labelledby="client-profile-title">
+  <button class="motor-drawer-close" onclick="closeClientProfile()" aria-label="Fechar">×</button>
+  <div class="motor-eyebrow">VISÃO 360° DA CONTA</div>
+  <h2 id="client-profile-title">${escapeWorkspaceHTML(r.n)}</h2>
+  <p class="motor-drawer-sub">${escapeWorkspaceHTML(r.c)} · ${escapeWorkspaceHTML(r.tipo)} · ${escapeWorkspaceHTML(r.est)}</p>
+  <section class="motor-client-action"><span>Próxima ação recomendada</span><strong>${escapeWorkspaceHTML(action)}</strong></section>
+  <section class="motor-client-kpis">
+   <article><span>Dias atuais</span><strong>${fmtD(r.dias)}</strong><small>${snapshots.length>1?`${r.dias-first.row.dias>=0?'+':''}${fmtD(r.dias-first.row.dias)} desde ${first.month.name}`:'primeiro fechamento'}</small></article>
+   <article><span>Contratos</span><strong>${fmt(r.ct)}</strong><small>no fechamento atual</small></article>
+   <article><span>Conteúdo Personalizado</span><strong>${latest.cp?'Sim':'Não'}</strong><small>${r.cp?'via sistema':CPV[r.c]?'validado pelo time':'sem ativação'}</small></article>
+   <article><span>Telemetria</span><strong>${r.tl?'Sim':'Não'}</strong><small>${both?'aderência completa':'oportunidade aberta'}</small></article>
+  </section>
+  <section class="motor-profile-section"><div class="motor-section-head"><div><h3>Evolução da conta</h3><p>Todos os fechamentos preservados para este cliente</p></div><span>${snapshots.length} períodos</span></div>
+   <div class="motor-history-bars">${snapshots.map(item=>`<div><b>${fmtD(item.row.dias)}</b><i style="height:${Math.max(5,Math.round(item.row.dias/maxDays*100))}%"></i><small>${escapeWorkspaceHTML(item.month.name.split(' ')[0])}</small></div>`).join('')}</div>
+  </section>
+  <section class="motor-profile-grid"><article><span>Cavaleiro</span><strong>${escapeWorkspaceHTML(r.cav)}</strong></article><article><span>Gerente</span><strong>${escapeWorkspaceHTML(r.ger)}</strong></article><article><span>Analista</span><strong>${escapeWorkspaceHTML(r.ana)}</strong></article><article><span>Classificação</span><strong>${escapeWorkspaceHTML(r.cls)}</strong></article></section>
+ </aside>`;
+ document.body.appendChild(root);
+}
+
+function renderMethodology(ct){
+ const keys=Object.entries(TARGETS).sort(([a],[b])=>a.localeCompare(b));
+ ct.innerHTML=`
+  <div class="motor-page-heading"><div><span>GOVERNANÇA DA MÉTRICA</span><h2>Metodologia e regras preservadas</h2><p>Memória operacional das regras que sustentam o painel e permanecem inalteradas nesta evolução.</p></div><button class="btn btn-g" onclick="showTargetModal()" ${isAdmin()?'':'disabled'}>Ajustar meta trimestral</button></div>
+  <section class="motor-method-grid">
+   <article><b>01</b><h3>Meta trimestral</h3><p>Cada trimestre possui uma meta independente. Alterar um trimestre não reescreve metas nem snapshots anteriores.</p></article>
+   <article><b>02</b><h3>Largada do trimestre</h3><p>A largada usa o último fechamento anterior ao trimestre. O avanço incremental mede apenas o esforço realizado dentro do período.</p></article>
+   <article><b>03</b><h3>Ambos — efetivo</h3><p>Conta com Conteúdo Personalizado via sistema ou validação manual e Telemetria ativa no mesmo fechamento.</p></article>
+   <article><b>04</b><h3>Pipeline elegível</h3><p>Clientes cuja média de dias dos três fechamentos mais recentes é igual ou superior a 150.</p></article>
+   <article><b>05</b><h3>CP Validado</h3><p>Override administrativo para proposta aceita. O histórico mantém o snapshot de cada mês; o override ao vivo vale no fechamento atual.</p></article>
+   <article><b>06</b><h3>Perfis de acesso</h3><p>Administradores podem importar, validar, excluir e ajustar metas. Membros permanecem em modo de consulta e exportação.</p></article>
+  </section>
+  <section class="motor-targets-panel"><div class="motor-section-head"><div><h3>Metas configuradas</h3><p>Referência persistida por trimestre</p></div><span>${keys.length} configurações</span></div><div>${keys.map(([key,value])=>`<button onclick="showTargetModal('${key}')"><span>${key}</span><strong>${value} clientes</strong></button>`).join('')}</div></section>
+  <section class="motor-preservation"><strong>Garantia de preservação</strong><p>A nova navegação não altera o formato dos meses, linhas, índices, CPV, metas, cache ou payloads do backend. Importação e exportação continuam usando as mesmas funções existentes.</p></section>`;
+}
+
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeClientProfile()});

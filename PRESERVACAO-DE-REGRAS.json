@@ -1,0 +1,13 @@
+{
+  "source": "github.com/gregoly/academiapxprodutos",
+  "sourceAppSha256": "ec31ac3af28bc55caefc312eed9cbf7ca7854b78a94ccd8f3be9b478ea404a15",
+  "preservedChecks": {
+    "quarterlyTargets": true,
+    "cpValidation": true,
+    "importSpreadsheet": true,
+    "exports": true,
+    "fullHistory": true,
+    "roleControl": true,
+    "backendSync": true
+  }
+}
