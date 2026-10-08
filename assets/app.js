@@ -1754,7 +1754,7 @@ function enhanceWorkspace(){
  const month=lat()?.name||'Sem período';
  const role=currentUser?.role==='admin'?'Administrador':'Membro';
  sidebar.innerHTML=`
-  <div class="motor-brand"><span>PX</span><div><strong>Academia PX</strong><small>Motor de OKRs</small></div><button id="workspace-nav-toggle" onclick="toggleWorkspaceNav()" aria-label="Recolher menu" title="Recolher menu"><i></i></button></div>
+  <div class="motor-brand"><button id="workspace-nav-toggle" onclick="toggleWorkspaceNav()" aria-label="Recolher menu" title="Recolher menu"><i></i></button></div>
   <div class="motor-nav-label">NAVEGAÇÃO OPERACIONAL</div>`;
  sidebar.appendChild(tabs);
  sidebar.insertAdjacentHTML('beforeend',`
