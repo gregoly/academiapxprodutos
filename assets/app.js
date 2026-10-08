@@ -898,7 +898,7 @@ function renderContent(){
  const ct=document.getElementById('ct');
  if(!ct)return;
  if(drilldown)return renderDrilldown(ct);
- if(tab==='overview')renderOverview(ct);
+ if(tab==='overview')renderStrategicOverview(ct);
  else if(tab==='pipeline')renderPipeline(ct);
  else if(tab==='clients')renderClients(ct);
  else if(tab==='base')renderBase(ct);
@@ -1659,12 +1659,25 @@ function toggleWorkspaceTheme(){
 }
 
 function toggleWorkspaceNav(){
- document.querySelector('.motor-workspace')?.classList.toggle('nav-open');
+ const workspace=document.querySelector('.motor-workspace');
+ if(!workspace)return;
+ if(window.matchMedia('(max-width:1180px)').matches){
+  const open=workspace.classList.toggle('nav-open');
+  const button=document.getElementById('workspace-nav-toggle');
+  if(button){button.setAttribute('aria-label',open?'Fechar menu':'Abrir menu');button.title=open?'Fechar menu':'Abrir menu'}
+  return;
+ }
+ const collapsed=workspace.classList.toggle('nav-collapsed');
+ try{localStorage.setItem('okr-apx-nav-collapsed',collapsed?'1':'0')}catch(e){}
+ const button=document.getElementById('workspace-nav-toggle');
+ if(button){button.setAttribute('aria-label',collapsed?'Expandir menu':'Recolher menu');button.title=collapsed?'Expandir menu':'Recolher menu'}
 }
 
 function goWorkspaceTab(next){
  drilldown=null;tab=next;pg=0;searchVal='';
  document.querySelector('.motor-workspace')?.classList.remove('nav-open');
+ const navButton=document.getElementById('workspace-nav-toggle');
+ if(navButton&&window.matchMedia('(max-width:1180px)').matches){navButton.setAttribute('aria-label','Abrir menu');navButton.title='Abrir menu'}
  updateTabs();renderContent();
 }
 
@@ -1676,20 +1689,35 @@ function workspaceRecommendation(okr,pipe){
  return 'Revise a base elegível e acompanhe novos clientes com potencial para o próximo fechamento.';
 }
 
+function workspaceDecision(okr,pipe){
+ const available=pipe.cnpjs.size;
+ if(okr.gap<=0)return{tone:'success',label:'Meta atingida',text:'A meta absoluta foi alcançada. Direcione a operação para adoção, retenção e qualidade das ativações.',rate:0,balance:available};
+ if(!available)return{tone:'risk',label:'Pipeline insuficiente',text:`Faltam ${okr.gap} clientes para a meta e não há contas elegíveis no pipeline atual. Revise a base e os critérios de entrada.`,rate:null,balance:-okr.gap};
+ const rate=Math.round(okr.gap/available*1000)/10;
+ const balance=available-okr.gap;
+ if(balance>=0)return{tone:rate<=35?'success':'attention',label:'Pipeline suficiente',text:`Converter ${okr.gap} de ${available} oportunidades (${rate}%) é suficiente para atingir a meta.`,rate,balance};
+ return{tone:'risk',label:'Cobertura insuficiente',text:`Mesmo convertendo todo o pipeline, ainda faltarão ${Math.abs(balance)} clientes. Amplie a geração de oportunidades elegíveis.`,rate,balance};
+}
+
+function workspacePercent(value,total){return total?Math.round(value/total*1000)/10:0}
+
 function buildWorkspacePulse(){
  const okr=computeOKR();
+ const qp=computeQuarterProgress();
  const pipe=computePipeline();
  const total=lat()?.rows?.length||0;
  const coverage=total?Math.round(okr.current/total*1000)/10:0;
+ const decision=workspaceDecision(okr,pipe);
  const el=document.createElement('section');
  el.className='motor-pulse';
- el.setAttribute('aria-label','Resumo operacional');
+ el.setAttribute('aria-label','Placar executivo');
  el.innerHTML=`
-  <button class="motor-pulse-card primary" onclick="goWorkspaceTab('overview')"><span>OKR no período</span><strong>${okr.current}/${okr.target}</strong><small>${okr.pct}% da meta</small></button>
-  <button class="motor-pulse-card" onclick="goWorkspaceTab('pipeline')"><span>Pipeline acionável</span><strong>${pipe.cnpjs.size}</strong><small>clientes elegíveis</small></button>
-  <button class="motor-pulse-card" onclick="goWorkspaceTab('clients')"><span>Aderência efetiva</span><strong>${coverage}%</strong><small>${okr.current} de ${total} clientes</small></button>
-  <button class="motor-pulse-card alert" onclick="openDrill('both')"><span>Gap da meta</span><strong>${okr.gap}</strong><small>${okr.gap===1?'cliente restante':'clientes restantes'}</small></button>
-  <div class="motor-next-action"><span>Próxima ação sugerida</span><strong>${workspaceRecommendation(okr,pipe)}</strong></div>`;
+  <div class="motor-pulse-heading"><div><span>PLACAR EXECUTIVO</span><strong>${qp?.quarterLabel||getCurrentQuarterKey()}</strong></div><small>${lat()?.name||'Sem fechamento'}</small></div>
+  <button class="motor-pulse-card primary" onclick="goWorkspaceTab('overview')"><span>Posição absoluta</span><strong>${okr.current}<em> / ${okr.target}</em></strong><small>${okr.pct}% da meta total</small><i style="--value:${okr.pct}%"><b></b></i></button>
+  <button class="motor-pulse-card quarter" onclick="goWorkspaceTab('overview')"><span>Avanço no trimestre</span><strong>${Math.max(0,qp?.delta||0)}<em> / ${qp?.deltaNeeded||okr.target}</em></strong><small>${qp?.pctIncremental??okr.pct}% do esforço trimestral</small><i style="--value:${qp?.pctIncremental??okr.pct}%"><b></b></i></button>
+  <button class="motor-pulse-card alert" onclick="openDrill('both')"><span>Distância da meta</span><strong>${okr.gap}</strong><small>${okr.gap===1?'cliente restante':'clientes restantes'}</small><i style="--value:${Math.min(100,okr.pct)}%"><b></b></i></button>
+  <button class="motor-pulse-card pipeline" onclick="goWorkspaceTab('pipeline')"><span>Pipeline acionável</span><strong>${pipe.cnpjs.size}</strong><small>${decision.rate===null?'sem cobertura':decision.rate+'% de conversão necessária'}</small><i style="--value:${Math.min(100,workspacePercent(Math.min(pipe.cnpjs.size,okr.gap),Math.max(1,okr.gap)))}%"><b></b></i></button>
+  <div class="motor-next-action ${decision.tone}"><span>${decision.label}</span><strong>${decision.text} ${workspaceRecommendation(okr,pipe)}</strong><button onclick="goWorkspaceTab('pipeline')">Ver oportunidades →</button></div>`;
  return el;
 }
 
@@ -1726,7 +1754,7 @@ function enhanceWorkspace(){
  const month=lat()?.name||'Sem período';
  const role=currentUser?.role==='admin'?'Administrador':'Membro';
  sidebar.innerHTML=`
-  <div class="motor-brand"><span>PX</span><div><strong>Academia PX</strong><small>Motor de OKRs</small></div></div>
+  <div class="motor-brand"><span>PX</span><div><strong>Academia PX</strong><small>Motor de OKRs</small></div><button id="workspace-nav-toggle" onclick="toggleWorkspaceNav()" aria-label="Recolher menu" title="Recolher menu"><i></i></button></div>
   <div class="motor-nav-label">NAVEGAÇÃO OPERACIONAL</div>`;
  sidebar.appendChild(tabs);
  sidebar.insertAdjacentHTML('beforeend',`
@@ -1746,8 +1774,51 @@ function enhanceWorkspace(){
  main.append(hdr,buildWorkspacePulse(),hero);
  if(legend)main.appendChild(legend);
  main.appendChild(content);
+ try{
+  if(localStorage.getItem('okr-apx-nav-collapsed')==='1'){
+   workspace.classList.add('nav-collapsed');
+   const navButton=document.getElementById('workspace-nav-toggle');
+   if(navButton){navButton.setAttribute('aria-label','Expandir menu');navButton.title='Expandir menu'}
+  }
+ }catch(e){}
  setWorkspaceTheme((()=>{try{return localStorage.getItem('okr-apx-workspace-theme')||'light'}catch(e){return'light'}})());
  updateTabs();makeClientRowsInteractive();
+}
+
+function renderStrategicOverview(ct){
+ renderOverview(ct);
+ const okr=computeOKR();
+ const qp=computeQuarterProgress();
+ const pipe=computePipeline();
+ const total=lat()?.rows?.length||0;
+ const cpEffective=okr.cpS+okr.cpV;
+ const missingCP=pipe.seg.none+pipe.seg.tel;
+ const missingTEL=pipe.seg.none+pipe.seg.cp;
+ const decision=workspaceDecision(okr,pipe);
+ const runway=pipe.cnpjs.size-okr.gap;
+ const section=document.createElement('section');
+ section.className='motor-strategy';
+ section.innerHTML=`
+  <div class="motor-strategy-head"><div><span>LEITURA ESTRATÉGICA</span><h2>Rota de atingimento da meta</h2><p>Visão consolidada do fechamento, do esforço trimestral e do potencial de conversão.</p></div><div class="motor-confidence ${decision.tone}"><small>${decision.label}</small><strong>${runway>=0?'+'+runway:runway}</strong><span>saldo entre pipeline e gap</span></div></div>
+  <div class="motor-strategy-grid">
+   <article class="motor-route-card">
+    <div class="motor-card-title"><div><span>01 · META</span><h3>Da largada ao objetivo</h3></div><strong>${qp?.pctIncremental??okr.pct}%</strong></div>
+    <div class="motor-route-track"><i class="start" style="left:${workspacePercent(qp?.baseline||0,okr.target)}%"></i><b style="width:${okr.pct}%"></b></div>
+    <div class="motor-route-labels"><span><small>Largada</small><strong>${qp?.baseline||0}</strong></span><span><small>Atual</small><strong>${okr.current}</strong></span><span><small>Meta</small><strong>${okr.target}</strong></span></div>
+    <p>${decision.text}</p>
+   </article>
+   <article class="motor-funnel-card">
+    <div class="motor-card-title"><div><span>02 · ADOÇÃO</span><h3>Funil dos produtos</h3></div><small>${fmt(total)} clientes na base</small></div>
+    <button onclick="openDrill('cpSys')"><span>CP efetivo</span><i><b style="width:${workspacePercent(cpEffective,total)}%"></b></i><strong>${cpEffective}<small>${workspacePercent(cpEffective,total)}%</small></strong></button>
+    <button onclick="openDrill('tel')"><span>Telemetria</span><i><b style="width:${workspacePercent(okr.tel,total)}%"></b></i><strong>${okr.tel}<small>${workspacePercent(okr.tel,total)}%</small></strong></button>
+    <button onclick="openDrill('both')"><span>Ambos</span><i><b style="width:${workspacePercent(okr.current,total)}%"></b></i><strong>${okr.current}<small>${workspacePercent(okr.current,total)}%</small></strong></button>
+   </article>
+   <article class="motor-priority-card">
+    <div class="motor-card-title"><div><span>03 · PRIORIZAÇÃO</span><h3>Lacunas no pipeline</h3></div><button onclick="goWorkspaceTab('pipeline')">Abrir pipeline</button></div>
+    <div><button onclick="pipeF='telonly';goWorkspaceTab('pipeline')"><small>Falta Conteúdo Personalizado</small><strong>${missingCP}</strong><span>${pipe.seg.tel} já possuem Telemetria</span></button><button onclick="pipeF='cponly';goWorkspaceTab('pipeline')"><small>Falta Telemetria</small><strong>${missingTEL}</strong><span>${pipe.seg.cp} já possuem CP</span></button><button onclick="pipeF='none';goWorkspaceTab('pipeline')"><small>Sem os dois produtos</small><strong>${pipe.seg.none}</strong><span>abordagem combinada</span></button></div>
+   </article>
+  </div>`;
+ ct.prepend(section);
 }
 
 function escapeWorkspaceHTML(value){

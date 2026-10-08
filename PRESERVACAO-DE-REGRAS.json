@@ -1,9 +1,11 @@
 {
-  "source": "github.com/gregoly/academiapxprodutos",
+  "source": "versao-estavel-anterior",
   "sourceAppSha256": "ec31ac3af28bc55caefc312eed9cbf7ca7854b78a94ccd8f3be9b478ea404a15",
   "preservedChecks": {
     "quarterlyTargets": true,
+    "baselinePreviousQuarter": true,
     "cpValidation": true,
+    "pipelineThreeMonthAverage": true,
     "importSpreadsheet": true,
     "exports": true,
     "fullHistory": true,
