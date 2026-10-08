@@ -13,6 +13,11 @@
     "backendSync": true,
     "quarterAwareProjection": true,
     "clientDaysIntelligence": true,
-    "contextualTabs": true
+    "contextualTabs": true,
+    "advancedFilters": true,
+    "accessManagement": true,
+    "quarterTargetMarkers": true,
+    "sessionOnlyCache": true,
+    "authenticatedInitialLoad": true
   }
 }
